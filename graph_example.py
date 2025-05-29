@@ -3,8 +3,9 @@ import dotenv
 from typing import TypedDict
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
 
 dotenv.load_dotenv()
 
@@ -54,44 +55,16 @@ class AgentState(TypedDict):
 
 # --- LLM Definition ---
 tools = [get_stock_price, get_company_news, summarize]
-llm = ChatOpenAI(model="gpt-4", temperature=0, tools=tools)
+llm = ChatOpenAI(model="gpt-4", temperature=0)
 
-# --- Define logic nodes ---
-def call_llm(state: AgentState) -> AgentState:
-    response = llm.invoke(state["messages"])
-    return {"messages": state["messages"] + [response]}
+# Create the agent node using LangGraph's built-in utility
+agent_node = create_react_agent(llm, tools)
 
-def call_tool(state: AgentState) -> AgentState:
-    tool_call = state["messages"][-1].tool_calls[0]
-    tool_name = tool_call['name']
-    tool_input = tool_call['args']
-    result = TOOL_REGISTRY[tool_name].invoke(tool_input)
-    tool_msg = ToolMessage(tool_call_id=tool_call['id'], content=result)
-    return {"messages": state["messages"] + [tool_msg]}
-
-# --- Tool registry ---
-TOOL_REGISTRY = {
-    "get_stock_price": get_stock_price,
-    "get_company_news": get_company_news,
-    "summarize": summarize,
-}
-
-# --- Graph Definition ---
+# Build the graph
 graph = StateGraph(AgentState)
-graph.add_node("llm", call_llm)
-graph.add_node("tool", call_tool)
-
-# Branching logic: if next step is tool call, go to tool; else END
-def router(state: AgentState):
-    last = state["messages"][-1]
-    if hasattr(last, 'tool_calls') and last.tool_calls:
-        return "tool"
-    else:
-        return END
-
-graph.set_entry_point("llm")
-graph.add_conditional_edges("llm", router)
-graph.add_edge("tool", "llm")
+graph.add_node("agent", agent_node)
+graph.set_entry_point("agent")
+graph.add_edge("agent", END)
 
 # --- Compile the graph ---
 app = graph.compile()
