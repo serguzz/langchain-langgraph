@@ -3,3 +3,13 @@ langchain_community
 langchain_openai
 openai
 langgraph
+langsmith
+langchain[openai]
+
+# visualization
+ipython
+
+# search engine
+langchain-tavily
+
+jupyter
